@@ -57,7 +57,7 @@ def extract_audio_features(audio_path):
         st.error(f"Lỗi khi xử lý file âm thanh: {e}")
         return None
 
-def find_nearest_audio(input_audio, features_csv, scaler_path="scaler.pkl", top_k=3, distance_metric="Euclidean"):
+def find_nearest_audio(input_audio, features_csv, scaler_path="scaler.pkl", top_k=4, distance_metric="Euclidean"):
     start_time = time.time()
     features = extract_audio_features(input_audio)
     if features is None:
@@ -92,7 +92,7 @@ def find_nearest_audio(input_audio, features_csv, scaler_path="scaler.pkl", top_
 
         end_time = time.time()
         time_taken = end_time - start_time
-        st.success(f"✅ Tìm thấy {len(nearest_indices)} file tương giống. Thời gian xử lý: {time_taken:.2f} giây.")
+        st.success(f"✅ Tìm thấy {len(nearest_indices)-1} file tương giống. Thời gian xử lý: {time_taken:.2f} giây.")
 
         return nearest_files, input_features
     except Exception as e:
@@ -114,7 +114,6 @@ with st.sidebar.expander("🧪 Công thức các thuật toán"):
 
 st.sidebar.header("Tải lên file âm thanh")
 uploaded_file = st.sidebar.file_uploader("Chọn file âm thanh", type=["wav"])
-
 if uploaded_file is not None:
     if uploaded_file.size > 10 * 1024 * 1024: 
         st.error("File quá lớn! Vui lòng tải file dưới 10MB.")
@@ -125,7 +124,7 @@ if uploaded_file is not None:
 
         with st.spinner("Đang xử lý file âm thanh..."):
             nearest, input_feats = find_nearest_audio("input_sample.wav", "voice_features_normalized.csv",
-                                                     top_k=3, distance_metric=distance_metric)
+                                                     top_k=4, distance_metric=distance_metric)
 
         if nearest:
             os.makedirs("output", exist_ok=True)
@@ -135,16 +134,21 @@ if uploaded_file is not None:
                 shutil.copy(input_path, output_path)
 
             st.subheader(f"Kết quả tìm kiếm ({distance_metric})")
-            max_distance = max([dist for _, dist, _ in nearest]) if nearest else 1
+            
+            # max_distance = max([dist for _, dist, _ in nearest]) if nearest else 1
             for filename, dist, _ in nearest:
-                similarity = (1 - dist / max_distance) * 100
-                st.write(f"{filename}: Độ tương đồng {similarity:.2f}%")
-                st.audio(os.path.join("output", filename), format="audio/wav")
+                if filename != uploaded_file.name:
+                    # similarity = (1 - dist / max_distance) * 100
+                    
+                    similarity = (1 / (1 + dist)) * 100  # Đảm bảo giá trị nằm trong (0, 100]
+  
+                    st.write(f"{filename}: Độ tương đồng {similarity:.2f}%")
+                    st.audio(os.path.join("output", filename), format="audio/wav")
 
             st.subheader("Waveform")
             st.write("Biểu đồ hiển thị biên độ âm thanh theo thời gian.")
             y_input, sr_input = librosa.load("input_sample.wav", sr=16000)
-            fig, axes = plt.subplots(1, 1 + len(nearest), figsize=(20, 4))
+            fig, axes = plt.subplots(1,len(nearest), figsize=(20, 4))
 
             if len(nearest) == 0:
                 axes = [axes]
@@ -156,21 +160,27 @@ if uploaded_file is not None:
             axes[0].set_xlabel("Thời gian (s)")
             axes[0].set_ylabel("Biên độ")
 
-            output_files = [os.path.join("output", filename) for filename, _, _ in nearest]
+            output_files = []
+            for filename, _, _ in nearest:
+                if filename != uploaded_file.name:
+                    output_files.append(os.path.join("output", filename))      
+                    
+            # output_files = [os.path.join("output", filename) for filename, _, _ in nearest]
+            # print(output_files)
             for i, output_file in enumerate(output_files):
-                y_output, sr_output = librosa.load(output_file, sr=16000)
-                librosa.display.waveshow(y_output, sr=sr_output, ax=axes[i + 1])
-                axes[i + 1].set_title(f"Waveform của Output {i + 1}")
-                axes[i + 1].set_xlabel("Thời gian (s)")
-                axes[i + 1].set_ylabel("Biên độ")
+               
+                    y_output, sr_output = librosa.load(output_file, sr=16000)
+                    librosa.display.waveshow(y_output, sr=sr_output, ax=axes[i + 1])
+                    axes[i + 1].set_title(f"Waveform của Output {i + 1}")
+                    axes[i + 1].set_xlabel("Thời gian (s)")
+                    axes[i + 1].set_ylabel("Biên độ")
 
             plt.tight_layout()
             st.pyplot(fig)
-
             st.subheader("MFCC")
             st.write("Biểu đồ hiển thị các hệ số MFCC, biểu thị đặc trưng âm sắc.")
             mfcc_input = librosa.feature.mfcc(y=y_input, sr=sr_input, n_mfcc=13)
-            fig, axes = plt.subplots(1, 1 + len(nearest), figsize=(20, 4))
+            fig, axes = plt.subplots(1, len(nearest), figsize=(20, 4))
 
             if len(nearest) == 0:
                 axes = [axes]
@@ -183,12 +193,13 @@ if uploaded_file is not None:
             axes[0].set_ylabel("MFCC Coefficients")
 
             for i, output_file in enumerate(output_files):
-                y_output, sr_output = librosa.load(output_file, sr=16000)
-                mfcc_output = librosa.feature.mfcc(y=y_output, sr=sr_output, n_mfcc=13)
-                librosa.display.specshow(mfcc_output, x_axis='time', sr=sr_output, ax=axes[i + 1])
-                axes[i + 1].set_title(f"MFCC của Output {i + 1}")
-                axes[i + 1].set_xlabel("Thời gian (s)")
-                axes[i + 1].set_ylabel("MFCC Coefficients")
+               
+                    y_output, sr_output = librosa.load(output_file, sr=16000)
+                    mfcc_output = librosa.feature.mfcc(y=y_output, sr=sr_output, n_mfcc=13)
+                    librosa.display.specshow(mfcc_output, x_axis='time', sr=sr_output, ax=axes[i + 1])
+                    axes[i + 1].set_title(f"MFCC của Output {i + 1}")
+                    axes[i + 1].set_xlabel("Thời gian (s)")
+                    axes[i + 1].set_ylabel("MFCC Coefficients")
 
             plt.tight_layout()
             st.pyplot(fig)
@@ -196,7 +207,7 @@ if uploaded_file is not None:
             st.subheader("Spectrogram")
             st.write("Biểu đồ hiển thị phổ tần số theo thời gian.")
             D_input = librosa.amplitude_to_db(librosa.stft(y_input), ref=np.max)
-            fig, axes = plt.subplots(1, 1 + len(nearest), figsize=(20, 4))
+            fig, axes = plt.subplots(1, len(nearest), figsize=(20, 4))
 
             if len(nearest) == 0:
                 axes = [axes]
@@ -209,12 +220,12 @@ if uploaded_file is not None:
             axes[0].set_ylabel("Tần số (Hz)")
 
             for i, output_file in enumerate(output_files):
-                y_output, sr_output = librosa.load(output_file, sr=16000)
-                D_output = librosa.amplitude_to_db(librosa.stft(y_output), ref=np.max)
-                librosa.display.specshow(D_output, x_axis='time', y_axis='log', sr=sr_output, ax=axes[i + 1])
-                axes[i + 1].set_title(f"Spectrogram của Output {i + 1}")
-                axes[i + 1].set_xlabel("Thời gian (s)")
-                axes[i + 1].set_ylabel("Tần số (Hz)")
+                    y_output, sr_output = librosa.load(output_file, sr=16000)
+                    D_output = librosa.amplitude_to_db(librosa.stft(y_output), ref=np.max)
+                    librosa.display.specshow(D_output, x_axis='time', y_axis='log', sr=sr_output, ax=axes[i + 1])
+                    axes[i + 1].set_title(f"Spectrogram của Output {i + 1}")
+                    axes[i + 1].set_xlabel("Thời gian (s)")
+                    axes[i + 1].set_ylabel("Tần số (Hz)")
 
             plt.tight_layout()
             st.pyplot(fig)
