@@ -3,3 +3,6 @@ clips/
 wav_data/
 .venv
 .vscode/
+.env/
+output/
+__pycache__/
