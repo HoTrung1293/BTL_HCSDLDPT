@@ -605,3 +605,48 @@ def extract_audio_file(filename, output_dir='wav_extracted'):
             "success": False,
             "error": str(e)
         }
+    
+def delete_audio_file(filename):
+    try:
+        file_path = os.path.join("data", filename)
+        
+        # 1. Xóa file trong thư mục
+        file_deleted = False
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            file_deleted = True
+        else:
+            return False, f"File {filename} không tồn tại trong thư mục data."
+
+        # 2. Xóa dữ liệu trong cơ sở dữ liệu
+        conn, cursor = connect_to_db()
+        if conn is None or cursor is None:
+            return False, f"Lỗi: Không thể kết nối đến cơ sở dữ liệu."
+
+        # Kiểm tra xem dữ liệu có tồn tại trước khi xóa
+        cursor.execute("SELECT COUNT(*) FROM voice WHERE filename = %s", (filename,))
+        voice_count = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM voice_normalized WHERE filename = %s", (filename,))
+        normalized_count = cursor.fetchone()[0]
+
+        # Xóa bản ghi trong bảng voice
+        cursor.execute("DELETE FROM voice WHERE filename = %s", (filename,))
+        voice_deleted = cursor.rowcount
+        
+        # Xóa bản ghi trong bảng voice_normalized
+        cursor.execute("DELETE FROM voice_normalized WHERE filename = %s", (filename,))
+        normalized_deleted = cursor.rowcount
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        # Kiểm tra kết quả
+        if file_deleted and (voice_deleted > 0 or normalized_deleted > 0):
+            return True, f"Đã xóa file {filename} và dữ liệu liên quan thành công. (voice: {voice_deleted}, voice_normalized: {normalized_deleted})"
+        elif file_deleted and voice_count == 0 and normalized_count == 0:
+            return True, f"Đã xóa file {filename} khỏi thư mục, nhưng không có dữ liệu liên quan trong cơ sở dữ liệu."
+        else:
+            return False, f"Đã xóa file {filename}, nhưng không thể xóa dữ liệu trong cơ sở dữ liệu. (voice: {voice_deleted}, voice_normalized: {normalized_deleted})"
+    except Exception as e:
+        return False, f"Lỗi khi xóa file/dữ liệu: {str(e)}"
