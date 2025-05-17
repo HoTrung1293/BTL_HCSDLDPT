@@ -88,103 +88,87 @@ if choice == "Tìm File Âm Thanh Tương Đồng":
                 shutil.copy(input_path, output_path)
 
             st.subheader(f"Kết quả tìm kiếm ({distance_metric})")
-            
+
             for filename, dist, _ in nearest:
                 if filename != selected_file:
                     similarity = (1 / (1 + dist)) * 100
                     st.write(f"{filename}: Độ tương đồng {similarity:.2f}%")
                     st.audio(os.path.join(output_dir, filename), format="audio/wav")
-                    
-            st.subheader("Waveform")
-            st.write("Biểu đồ hiển thị biên độ âm thanh theo thời gian.")
             y_input, sr_input = librosa.load(file_path, sr=16000)
-            
-            output_count = len([f for f, _, _ in nearest if f != selected_file])
-            fig, axes = plt.subplots(1, output_count + 1, figsize=(20, 4))
-            axes = np.array(axes).flatten()
+            output_files = [os.path.join(output_dir, filename) for filename, _, _ in nearest if filename != selected_file]
+            y_outputs = [librosa.load(output_file, sr=16000)[0] for output_file in output_files]
+            sr_outputs = [16000] * len(y_outputs)
 
-            librosa.display.waveshow(y_input, sr=sr_input, ax=axes[0])
-            axes[0].set_title("Waveform của Input Audio")
-            axes[0].set_xlabel("Thời gian (s)")
-            axes[0].set_ylabel("Biên độ")
+            def plot_2x2_ms(fig_title, plot_func, *args):
+                fig, axes = plt.subplots(2, 2, figsize=(20, 10))
+                axes = axes.flatten()
+                titles = ["Input Audio"] + [f"Output {i+1}" for i in range(len(y_outputs))]
+                for i, ax in enumerate(axes):
+                    if i == 0:
+                        plot_func(ax, y_input, sr_input, *args)
+                    else:
+                        plot_func(ax, y_outputs[i-1], sr_outputs[i-1], *args)
+                    ax.set_title(titles[i], fontsize=14)
+                    ax.set_xlabel("Thời gian (ms)", fontsize=12)
+                    ax.set_ylabel(
+                        "Biên độ" if "wave" in fig_title.lower() else
+                        "MFCC Coefficients" if "mfcc" in fig_title.lower() else
+                        "Tần số (Hz)",
+                        fontsize=12
+                    )
+                plt.tight_layout()
+                st.pyplot(fig)
 
-            output_files = []
-            for filename, _, _ in nearest:
-                if filename != selected_file:
-                    output_files.append(os.path.join(output_dir, filename))      
+            st.subheader("Waveform (ms)")
+            st.write("Biểu đồ hiển thị biên độ âm thanh theo thời gian (ms).")
+            def plot_waveform_ms(ax, y, sr):
+                times_ms = np.arange(len(y)) / sr * 1000  
+                ax.plot(times_ms, y)
+                ax.xaxis.set_major_locator(plt.MaxNLocator(6))
+            plot_2x2_ms("Waveform", plot_waveform_ms)
 
-            for i, output_file in enumerate(output_files):
-                y_output, sr_output = librosa.load(output_file, sr=16000)
-                librosa.display.waveshow(y_output, sr=sr_output, ax=axes[i + 1])
-                axes[i + 1].set_title(f"Waveform của Output {i + 1}")
-                axes[i + 1].set_xlabel("Thời gian (s)")
-                axes[i + 1].set_ylabel("Biên độ")
+            def convert_xticks_to_ms(ax):
+                ticks_s = ax.get_xticks()
+                ax.set_xticklabels([f"{t*1000:.0f}" for t in ticks_s])
 
-            plt.tight_layout()
-            st.pyplot(fig)
-            
-            st.subheader("MFCC")
-            st.write("Biểu đồ hiển thị các hệ số MFCC, biểu thị đặc trưng âm sắc.")
-            mfcc_input = librosa.feature.mfcc(y=y_input, sr=sr_input, n_mfcc=13)
-            
-            fig, axes = plt.subplots(1, output_count + 1, figsize=(20, 4))
-            axes = np.array(axes).flatten()
+            st.subheader("MFCC (ms)")
+            st.write("Biểu đồ hiển thị hệ số MFCC theo thời gian (ms).")
+            def plot_mfcc_ms(ax, y, sr):
+                mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
+                img = librosa.display.specshow(mfcc, x_axis='time', sr=sr, ax=ax)
+                convert_xticks_to_ms(ax)
+            plot_2x2_ms("MFCC", plot_mfcc_ms)
 
-            librosa.display.specshow(mfcc_input, x_axis='time', sr=sr_input, ax=axes[0])
-            axes[0].set_title("MFCC của Input Audio")
-            axes[0].set_xlabel("Thời gian (s)")
-            axes[0].set_ylabel("MFCC Coefficients")
-
-            for i, output_file in enumerate(output_files):
-                y_output, sr_output = librosa.load(output_file, sr=16000)
-                mfcc_output = librosa.feature.mfcc(y=y_output, sr=sr_output, n_mfcc=13)
-                librosa.display.specshow(mfcc_output, x_axis='time', sr=sr_output, ax=axes[i + 1])
-                axes[i + 1].set_title(f"MFCC của Output {i + 1}")
-                axes[i + 1].set_xlabel("Thời gian (s)")
-                axes[i + 1].set_ylabel("MFCC Coefficients")            
-            plt.tight_layout()
-            st.pyplot(fig)
-            
-            st.subheader("Spectrogram")
+            st.subheader("Spectrogram (ms)")
             st.write("Biểu đồ hiển thị phổ tần số theo thời gian.")
-            D_input = librosa.amplitude_to_db(librosa.stft(y_input), ref=np.max)
+            def plot_spectrogram_ms(ax, y, sr):
+                D = librosa.amplitude_to_db(librosa.stft(y), ref=np.max)
+                librosa.display.specshow(D, x_axis='time', y_axis='log', sr=sr, ax=ax)
+                convert_xticks_to_ms(ax)
+            plot_2x2_ms("Spectrogram", plot_spectrogram_ms)
             
-            fig, axes = plt.subplots(1, output_count + 1, figsize=(20, 4))
-            axes = np.array(axes).flatten()
-
-            librosa.display.specshow(D_input, x_axis='time', y_axis='log', sr=sr_input, ax=axes[0])
-            axes[0].set_title("Spectrogram của Input Audio")
-            axes[0].set_xlabel("Thời gian (s)")
-            axes[0].set_ylabel("Tần số (Hz)")
-
-            for i, output_file in enumerate(output_files):
-                y_output, sr_output = librosa.load(output_file, sr=16000)
-                D_output = librosa.amplitude_to_db(librosa.stft(y_output), ref=np.max)
-                librosa.display.specshow(D_output, x_axis='time', y_axis='log', sr=sr_output, ax=axes[i + 1])
-                axes[i + 1].set_title(f"Spectrogram của Output {i + 1}")
-                axes[i + 1].set_xlabel("Thời gian (s)")
-                axes[i + 1].set_ylabel("Tần số (Hz)")
-                
-            plt.tight_layout()
-            st.pyplot(fig)
-            
-            feature_names = ["pitch", "energy", "zcr", "centroid", "bandwidth", "silence_ratio"] + [f"mfcc_{i}" for i in range(13)]
-            df_compare = pd.DataFrame(columns=["file", "distance"] + feature_names)
-            
-            input_row = ["Input", 0.0] + list(input_feats)
-            df_compare.loc[0] = input_row
-            
-            for idx, (fname, dist, feats) in enumerate(nearest):
+            feature_names = ["pitch", "energy", "zcr", "centroid", "bandwidth", "silence_ratio"] \
+                + [f"mfcc_{i}" for i in range(13)]
+            rows = []
+            rows.append({
+                "file": "Input",
+                "distance": 0.0,
+                **dict(zip(feature_names, input_feats))
+            })
+            for fname, dist, feats in nearest:
                 if feats is not None:
-                    row = [fname, round(dist, 4)] + list(feats)
-                    df_compare.loc[idx + 1] = row
-                
+                    rows.append({
+                        "file": fname,
+                        "distance": round(dist, 4),
+                        **dict(zip(feature_names, feats))
+                    })
+            df_compare = pd.DataFrame(rows, columns=["file", "distance"] + feature_names)
             st.subheader(f"So sánh đặc trưng ({distance_metric})")
             st.dataframe(df_compare, use_container_width=True)
-            
+
             st.subheader("Biểu đồ so sánh đặc trưng")
             available_features = [f for f in feature_names if f in df_compare.columns]
-            default_features = ["pitch", "energy", "energy", "centroid", "bandwidth", "silence_ratio"]
+            default_features = ["pitch", "energy", "centroid", "bandwidth", "silence_ratio"]
             default_features = [f for f in default_features if f in available_features]
             selected_features = st.multiselect("Chọn đặc trưng để so sánh", 
                                               available_features, 
@@ -192,10 +176,27 @@ if choice == "Tìm File Âm Thanh Tương Đồng":
             
             if selected_features and len(df_compare) > 0:
                 try:
-                    fig = px.bar(df_compare, x="file", y=selected_features, barmode="group", 
-                                title="So sánh đặc trưng giữa input và các file tương đồng")
+                    fig = px.bar(
+                        df_compare,
+                        x="file",
+                        y=selected_features,
+                        barmode="group",
+                        title="So sánh đặc trưng giữa input và các file tương đồng",
+                        height=600,
+                        color_discrete_sequence=px.colors.qualitative.Set2 
+                    )
+                    fig.update_layout(
+                        font=dict(size=14),
+                        title_font_size=18,
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                        margin=dict(t=80, b=40, l=40, r=40)
+                    )
+                    fig.update_xaxes(
+                        tickangle=-45,
+                        tickfont=dict(size=12)
+                    )
                     st.plotly_chart(fig, use_container_width=True)
-                    
+
                     if len(selected_features) >= 3:
                         radar_data = df_compare[["file"] + selected_features].copy()
                         fig_radar = px.line_polar(radar_data, r=selected_features, theta="file", line_close=True)
@@ -213,7 +214,8 @@ if choice == "Tìm File Âm Thanh Tương Đồng":
                         heatmap_data = df_compare.set_index("file")[features_for_heatmap]
                         fig = px.imshow(heatmap_data, 
                                       labels=dict(x="Đặc trưng", y="File", color="Giá trị"),
-                                      title="Heat Map so sánh các đặc trưng")
+                                      title="Heat Map so sánh các đặc trưng",
+                                      height=600)
                         st.plotly_chart(fig, use_container_width=True)
                     except Exception as e:
                         st.error(f"Lỗi khi tạo heat map: {str(e)}")
